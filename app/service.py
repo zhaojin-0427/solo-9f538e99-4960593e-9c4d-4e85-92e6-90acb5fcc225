@@ -248,8 +248,21 @@ def upload_statement(db_path: str, row_labels, col_labels, amounts,
         conn.close()
 
 
+def _insert_archive(conn, lock_id, row_label, statement_version, col_labels, cells,
+                    subtotal_wan, base_amounts, ts):
+    """锁定留档：与锁定记录在同一事务写入；任一方失败则两者一起回滚、版号不变。"""
+    conn.execute(
+        "INSERT INTO archive_record (lock_id, row_label, statement_version, "
+        "col_labels_json, cells_json, subtotal_wan, base_json, base_status, "
+        "locked_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'recorded', ?, ?)",
+        (lock_id, row_label, statement_version,
+         json.dumps(col_labels, ensure_ascii=False),
+         json.dumps(cells, ensure_ascii=False), subtotal_wan,
+         json.dumps(base_amounts, ensure_ascii=False), ts, ts))
+
+
 def lock_row(db_path: str, row_key: str, expected_version: int):
-    """锁定当前版公示表中的一行；版本过期则拒绝。"""
+    """锁定当前版公示表中的一行并同步留档；版本过期则拒绝。"""
     conn = connect(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -276,14 +289,26 @@ def lock_row(db_path: str, row_key: str, expected_version: int):
                 "SELECT subtotal_wan FROM public_row WHERE row_key = ?", (row_key,)).fetchone()
             if sub is None or sub["subtotal_wan"] != sum(cells):
                 raise SaveError("公示行小计不一致，未锁定。")
-            conn.execute(
+            base_amounts = []
+            for col in cols:
+                r = conn.execute(
+                    "SELECT amount_yuan FROM base_cell WHERE row_key = ? AND col_key = ?",
+                    (row_key, col.key)).fetchone()
+                if r is None:
+                    raise SaveError("底表数据缺失，未锁定。")
+                base_amounts.append(r["amount_yuan"])
+            ts = now_iso()
+            cur = conn.execute(
                 "INSERT INTO lock_record (row_key, row_label, subtotal_wan, cells_json, "
                 "statement_version, locked_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (row_key, row["label"], sub["subtotal_wan"],
-                 json.dumps(cells, ensure_ascii=False), version, now_iso()))
+                 json.dumps(cells, ensure_ascii=False), version, ts))
+            _insert_archive(conn, cur.lastrowid, row["label"], version,
+                            [c.label for c in cols], cells, sub["subtotal_wan"],
+                            base_amounts, ts)
             conn.execute(
                 "UPDATE meta SET version = version + 1, updated_at = ? WHERE id = 1",
-                (now_iso(),))
+                (ts,))
             conn.execute("COMMIT")
             return {"version": version + 1, "row_label": row["label"]}
         except BaseException:
@@ -292,6 +317,53 @@ def lock_row(db_path: str, row_key: str, expected_version: int):
             raise
     except sqlite3.Error as exc:
         raise SaveError("锁定保存失败，数据未变更。") from exc
+    finally:
+        conn.close()
+
+
+def load_archives(db_path: str, row_label: Optional[str] = None,
+                  statement_version: Optional[int] = None):
+    """读取留档记录（含换表前的旧档），可按院系名称与锁定时所见版号过滤。"""
+    conn = connect(db_path)
+    try:
+        labels = [r["row_label"] for r in conn.execute(
+            "SELECT DISTINCT row_label FROM archive_record ORDER BY row_label")]
+        sql = ("SELECT id, lock_id, row_label, statement_version, col_labels_json, "
+               "cells_json, subtotal_wan, base_json, base_status, locked_at, archived_at "
+               "FROM archive_record")
+        clauses, params = [], []
+        if row_label:
+            clauses.append("row_label = ?")
+            params.append(row_label)
+        if statement_version is not None:
+            clauses.append("statement_version = ?")
+            params.append(statement_version)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY statement_version DESC, id DESC"
+        records = []
+        for r in conn.execute(sql, params):
+            col_labels = json.loads(r["col_labels_json"])
+            cells = json.loads(r["cells_json"])
+            base = json.loads(r["base_json"]) if r["base_json"] is not None else None
+            entries = [{
+                "col_label": label,
+                "value_wan": cells[i] if i < len(cells) else None,
+                "amount_yuan": base[i] if base is not None and i < len(base) else None,
+            } for i, label in enumerate(col_labels)]
+            records.append({
+                "id": r["id"],
+                "lock_id": r["lock_id"],
+                "row_label": r["row_label"],
+                "statement_version": r["statement_version"],
+                "subtotal_wan": r["subtotal_wan"],
+                "base_status": r["base_status"],
+                "locked_at": r["locked_at"],
+                "archived_at": r["archived_at"],
+                "entries": entries,
+                "base_subtotal_yuan": sum(base) if base is not None else None,
+            })
+        return {"labels": labels, "records": records}
     finally:
         conn.close()
 

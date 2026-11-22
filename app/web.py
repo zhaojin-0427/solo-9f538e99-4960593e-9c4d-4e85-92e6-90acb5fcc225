@@ -9,7 +9,8 @@ from flask import (Flask, flash, redirect, render_template, request, url_for)
 from .csvio import CsvError, parse_csv
 from .db import init_db
 from .service import (AppError, ConflictError, InfeasibleError, ValidationError,
-                      correct_statement, load_statement, lock_row, upload_statement)
+                      correct_statement, load_archives, load_statement, lock_row,
+                      upload_statement)
 
 
 def create_app(db_path: str | None = None) -> Flask:
@@ -90,6 +91,27 @@ def create_app(db_path: str | None = None) -> Flask:
         else:
             flash("已按当前所见版锁定该院系行。", "success")
         return redirect(url_for("statement_page"))
+
+    @app.get("/archive")
+    def archive_page():
+        row_label = (request.args.get("row_label") or "").strip() or None
+        raw_version = (request.args.get("version") or "").strip()
+        version = None
+        if raw_version:
+            try:
+                version = int(raw_version)
+                if version < 0:
+                    raise ValueError
+            except ValueError:
+                flash("版号须为非负整数，已改为显示全部留档。", "error")
+                data = load_archives(app.config["DB_PATH"])
+                return render_template("archive.html", data=data,
+                                       selected_label=None, selected_version=None,
+                                       filtered=False)
+        data = load_archives(app.config["DB_PATH"], row_label, version)
+        return render_template("archive.html", data=data,
+                               selected_label=row_label, selected_version=version,
+                               filtered=bool(row_label) or version is not None)
 
     @app.get("/correct")
     def correct_page():

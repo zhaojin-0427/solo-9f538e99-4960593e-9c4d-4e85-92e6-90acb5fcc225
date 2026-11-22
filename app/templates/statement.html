@@ -61,7 +61,7 @@
     <summary>锁定记录（{{ s.locks|length }} 条，已存 SQLite）</summary>
     <table class="grid records">
       <thead>
-        <tr><th>院系</th><th>锁定版号</th><th>公示值（万元）</th><th>行小计</th><th>锁定时间</th></tr>
+        <tr><th>院系</th><th>锁定版号</th><th>公示值（万元）</th><th>行小计</th><th>锁定时间</th><th>留档</th></tr>
       </thead>
       <tbody>
         {% for key, lock in s.locks.items() %}
@@ -71,10 +71,12 @@
           <td class="num">{{ lock.cells|join('、') }}</td>
           <td class="num">{{ lock.subtotal }}</td>
           <td class="num">{{ lock.locked_at }}</td>
+          <td><a href="{{ url_for('archive_page', row_label=lock.row_label, version=lock.statement_version) }}">查看留档</a></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    <p class="muted">换表前的历史留档（含当时的底表元金额）可在<a href="{{ url_for('archive_page') }}">留档页</a>按原院系名称与版号查询。</p>
   </details>
   {% endif %}
 </section>

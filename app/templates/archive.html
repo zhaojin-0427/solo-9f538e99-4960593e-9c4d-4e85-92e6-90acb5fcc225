@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}留档 · 科研支出万元公示{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="headline">
+    <h1>锁定留档</h1>
+    <span class="version">共 {{ data.records|length }} 条{% if filtered %}（已按条件过滤）{% endif %}</span>
+  </div>
+  <p class="muted">每次锁定在锁定时同步留档：原科目、万元公示值、行小计与当时的底表元金额。
+    重新导入 CSV 会清空当前锁定，但旧档保留，可按原院系名称与锁定版号查询；留档不随后续更正或重启改变。</p>
+  <form method="get" action="{{ url_for('archive_page') }}" class="filter">
+    <label>院系
+      <select name="row_label">
+        <option value="">全部院系</option>
+        {% for label in data.labels %}
+        <option value="{{ label }}" {{ 'selected' if label == selected_label }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>锁定版号
+      <input type="number" name="version" min="0" step="1"
+             value="{{ selected_version if selected_version is not none else '' }}">
+    </label>
+    <button type="submit">查询</button>
+    {% if filtered %}<a class="button secondary" href="{{ url_for('archive_page') }}">清除条件</a>{% endif %}
+  </form>
+  {% if data.records %}
+    {% for rec in data.records %}
+    <div class="archive-record">
+      <div class="headline">
+        <h2>{{ rec.row_label }} · 版号 {{ rec.statement_version }}</h2>
+        <span class="version">锁定 {{ rec.locked_at }} · 留档 {{ rec.archived_at }}</span>
+      </div>
+      <table class="grid records">
+        <thead>
+          <tr><th>科目</th><th>公示值（万元）</th><th>底表金额（元）</th></tr>
+        </thead>
+        <tbody>
+          {% for item in rec.entries %}
+          <tr>
+            <th class="rowhead">{{ item.col_label }}</th>
+            <td class="num">{{ item.value_wan }}</td>
+            <td class="num">{% if item.amount_yuan is none %}<span class="missing">未留存</span>{% else %}{{ item.amount_yuan }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+          <tr>
+            <th class="rowhead">行小计</th>
+            <td class="num subtotal">{{ rec.subtotal_wan }}</td>
+            <td class="num">{% if rec.base_subtotal_yuan is none %}<span class="missing">未留存</span>{% else %}{{ rec.base_subtotal_yuan }}{% endif %}</td>
+          </tr>
+        </tbody>
+      </table>
+      {% if rec.base_status != 'recorded' %}
+      <p class="hint">该行锁定后底表曾有更正，锁定时的元金额证据不足，标为「未留存」；公示数字以锁定原值为准。</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="muted">无符合条件的留档记录。锁定院系行时会自动留档；从旧版本升级后，启动时会为仍在的锁定补建留档。</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -61,3 +61,9 @@ details.locks { margin-top: 18px; border-top: 1px dashed var(--line); padding-to
 details.locks summary { cursor: pointer; color: #334e68; font-size: 14px; }
 table.records { margin-top: 10px; font-size: 13px; }
 table.records td, table.records th { padding: 6px 8px; }
+form.filter { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin: 12px 0 4px; }
+form.filter label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #334e68; }
+form.filter select, form.filter input { padding: 6px 8px; border: 1px solid #b8c2cc; border-radius: 6px; font-size: 14px; }
+.archive-record { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 14px; }
+.archive-record h2 { font-size: 16px; margin: 0 0 6px; }
+.missing { color: #a61b1b; font-weight: 600; }
